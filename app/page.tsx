@@ -6,6 +6,7 @@ import { PokemonSearch } from '@/components/PokemonSearch'
 import { PokemonCard } from '@/components/PokemonCard'
 import { AlertCircle } from 'lucide-react'
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { getMoveType } from '@/lib/api-service'
 
 interface PokemonData {
   id: number;
@@ -53,12 +54,6 @@ interface PokemonData {
   }>;
 }
 
-interface MoveType {
-  type: {
-    name: string;
-  };
-}
-
 export default function Home() {
   const [pokemon, setPokemon] = useState<PokemonData | null>(null)
   const [moveTypes, setMoveTypes] = useState<Record<string, string>>({})
@@ -85,16 +80,15 @@ export default function Home() {
       
       // Load move types (for the first 20 moves to avoid too many requests)
       const moveTypesMap: Record<string, string> = {}
-      const movePromises = data.moves.slice(0, 20).map(moveData => 
-        fetch(moveData.move.url)
-          .then(res => res.json())
-          .then((moveInfo: MoveType) => {
-            moveTypesMap[moveData.move.name] = moveInfo.type.name
-          })
-          .catch(error => {
-            console.error(`Error fetching move type for ${moveData.move.name}:`, error)
-          })
-      )
+      const movePromises = data.moves.slice(0, 20).map(async moveData => {
+        try {
+          // Use our service with caching and deduping
+          const moveInfo = await getMoveType(moveData.move.url) as { type: { name: string } }
+          moveTypesMap[moveData.move.name] = moveInfo.type.name
+        } catch (error) {
+          console.error(`Error fetching move type for ${moveData.move.name}:`, error)
+        }
+      })
       
       await Promise.all(movePromises)
       setMoveTypes(moveTypesMap)

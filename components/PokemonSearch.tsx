@@ -19,10 +19,11 @@ export function PokemonSearch({ onSearch, isLoading }: PokemonSearchProps) {
   const [highlightedIndex, setHighlightedIndex] = useState<number>(-1)
   const searchInputRef = useRef<HTMLInputElement>(null)
   const suggestionsRef = useRef<HTMLUListElement>(null)
+  const lastFetchRef = useRef<NodeJS.Timeout | null>(null)
 
   useEffect(() => {
     const fetchSuggestions = async () => {
-      if (!searchTerm.trim() || searchTerm.length < 2) {
+      if (!searchTerm.trim()) {
         setSuggestions([])
         setIsOpen(false)
         return
@@ -44,9 +45,20 @@ export function PokemonSearch({ onSearch, isLoading }: PokemonSearchProps) {
       }
     }
 
-    // Debounce the API call to avoid making too many requests
-    const debounceTimer = setTimeout(fetchSuggestions, 300)
-    return () => clearTimeout(debounceTimer)
+    // Clear any existing timeout to implement debouncing
+    if (lastFetchRef.current) {
+      clearTimeout(lastFetchRef.current)
+    }
+
+    // Set a new timeout to fetch suggestions after a delay
+    lastFetchRef.current = setTimeout(fetchSuggestions, 300)
+
+    // Cleanup function to clear the timeout if the component unmounts or searchTerm changes again
+    return () => {
+      if (lastFetchRef.current) {
+        clearTimeout(lastFetchRef.current)
+      }
+    }
   }, [searchTerm])
 
   // Handle clicks outside the dropdown to close it
