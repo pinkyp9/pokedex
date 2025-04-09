@@ -1,101 +1,161 @@
-import Image from "next/image";
+// app/page.tsx
+'use client'
+
+import { useState } from 'react'
+import { PokemonSearch } from '@/components/PokemonSearch'
+import { PokemonCard } from '@/components/PokemonCard'
+import { AlertCircle } from 'lucide-react'
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+
+interface PokemonData {
+  id: number;
+  name: string;
+  sprites: {
+    other: {
+      'official-artwork': {
+        front_default: string;
+      };
+    };
+  };
+  types: Array<{
+    type: {
+      name: string;
+    };
+  }>;
+  height: number;
+  weight: number;
+  abilities: Array<{
+    ability: {
+      name: string;
+    };
+    is_hidden: boolean;
+  }>;
+  stats: Array<{
+    base_stat: number;
+    stat: {
+      name: string;
+    };
+  }>;
+  moves: Array<{
+    move: {
+      name: string;
+      url: string;
+    };
+    version_group_details: Array<{
+      level_learned_at: number;
+      move_learn_method: {
+        name: string;
+      };
+      version_group: {
+        name: string;
+      };
+    }>;
+  }>;
+}
+
+interface MoveType {
+  type: {
+    name: string;
+  };
+}
 
 export default function Home() {
-  return (
-    <div className="grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20 font-[family-name:var(--font-geist-sans)]">
-      <main className="flex flex-col gap-8 row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="https://nextjs.org/icons/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="list-inside list-decimal text-sm text-center sm:text-left font-[family-name:var(--font-geist-mono)]">
-          <li className="mb-2">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] px-1 py-0.5 rounded font-semibold">
-              app/page.tsx
-            </code>
-            .
-          </li>
-          <li>Save and see your changes instantly.</li>
-        </ol>
+  const [pokemon, setPokemon] = useState<PokemonData | null>(null)
+  const [moveTypes, setMoveTypes] = useState<Record<string, string>>({})
+  const [isLoading, setIsLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="https://nextjs.org/icons/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:min-w-44"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
+  const searchPokemon = async (pokemonName: string) => {
+    setIsLoading(true)
+    setError(null)
+
+    try {
+      const response = await fetch(`/api/pokemon?name=${encodeURIComponent(pokemonName)}`)
+      
+      if (!response.ok) {
+        if (response.status === 404) {
+          throw new Error(`Pokémon "${pokemonName}" not found. Please check the spelling or try another Pokémon.`)
+        } else {
+          throw new Error(`Failed to fetch data for "${pokemonName}". Please try again later.`)
+        }
+      }
+      
+      const data: PokemonData = await response.json()
+      setPokemon(data)
+      
+      // Load move types (for the first 20 moves to avoid too many requests)
+      const moveTypesMap: Record<string, string> = {}
+      const movePromises = data.moves.slice(0, 20).map(moveData => 
+        fetch(moveData.move.url)
+          .then(res => res.json())
+          .then((moveInfo: MoveType) => {
+            moveTypesMap[moveData.move.name] = moveInfo.type.name
+          })
+          .catch(error => {
+            console.error(`Error fetching move type for ${moveData.move.name}:`, error)
+          })
+      )
+      
+      await Promise.all(movePromises)
+      setMoveTypes(moveTypesMap)
+      
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to fetch Pokémon')
+      setPokemon(null)
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  // Process moves data to get the most recent version's moves
+  const processedMoves = pokemon ? pokemon.moves.map(moveData => {
+    // Get the latest version detail (assumes the API returns these in chronological order)
+    const latestVersion = moveData.version_group_details[moveData.version_group_details.length - 1]
+    
+    return {
+      name: moveData.move.name,
+      type: moveTypes[moveData.move.name], // Type may be undefined if we haven't loaded it yet
+      learnMethod: latestVersion.move_learn_method.name
+    }
+  }) : []
+
+  return (
+    <main className="min-h-screen bg-gray-50">
+      <div className="container mx-auto py-8 px-4">
+        <div className="flex flex-col items-center mb-8">
+          <h1 className="text-4xl font-bold text-red-500 mb-2">Pokédex</h1>
+          <p className="text-gray-500 mb-6">Search for any Pokémon by name</p>
+          
+          <PokemonSearch onSearch={searchPokemon} isLoading={isLoading} />
+          
+          {error && (
+            <Alert variant="destructive" className="mt-4 w-full max-w-md">
+              <AlertCircle className="h-4 w-4" />
+              <AlertTitle>Error</AlertTitle>
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          )}
         </div>
-      </main>
-      <footer className="row-start-3 flex gap-6 flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="https://nextjs.org/icons/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="https://nextjs.org/icons/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="https://nextjs.org/icons/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
-    </div>
-  );
+
+        {pokemon && (
+          <div className="flex justify-center">
+            <PokemonCard
+              name={pokemon.name}
+              id={pokemon.id}
+              image={pokemon.sprites.other['official-artwork'].front_default}
+              types={pokemon.types.map(t => t.type.name)}
+              height={pokemon.height}
+              weight={pokemon.weight}
+              abilities={pokemon.abilities.map(a => a.ability.name)}
+              stats={pokemon.stats.map(s => ({
+                name: s.stat.name,
+                value: s.base_stat
+              }))}
+              moves={processedMoves}
+            />
+          </div>
+        )}
+      </div>
+    </main>
+  )
 }
